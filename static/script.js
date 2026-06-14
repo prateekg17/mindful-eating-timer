@@ -122,7 +122,8 @@
     if (!audioCtx) return;
     const now = audioCtx.currentTime;
     scheduledOscillators.forEach(function (osc) {
-      try { osc.stop(now); } catch (_) { /* already stopped */ }
+      try { osc.stop(now); } catch (_) { /* ignore */ }
+      try { osc.disconnect(); } catch (_) { /* already disconnected */ }
     });
     scheduledOscillators = [];
   }
@@ -134,6 +135,7 @@
    */
   function startKeepAlive() {
     stopKeepAlive();
+    if (!soundEnabled) return;
     const ctx = getAudioContext();
 
     const silentBuffer = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
@@ -146,6 +148,8 @@
     source.connect(gain);
     gain.connect(ctx.destination);
 
+    source._keepAliveGain = gain;
+
     source.start();
     keepAliveSource = source;
   }
@@ -153,7 +157,12 @@
   // Stop the keep-alive source.
   function stopKeepAlive() {
     if (keepAliveSource) {
+      const gain = keepAliveSource._keepAliveGain;
       try { keepAliveSource.stop(); } catch (_) { /* already stopped */ }
+      try { keepAliveSource.disconnect(); } catch (_) { /* ignore */ }
+      if (gain) {
+        try { gain.disconnect(); } catch (_) { /* ignore */ }
+      }
       keepAliveSource = null;
     }
   }
@@ -286,12 +295,14 @@
     const icon = soundToggle.previousElementSibling.querySelector(".toggle-icon");
     icon.textContent = soundEnabled ? "\uD83D\uDD0A" : "\uD83D\uDD07";
 
-    if (isRunning) {
-      if (soundEnabled) {
+    if (soundEnabled) {
+      if (isRunning) {
         scheduleAllChimes();
-      } else {
-        cancelScheduledChimes();
+        startKeepAlive();
       }
+    } else {
+      cancelScheduledChimes();
+      stopKeepAlive();
     }
   }
 
