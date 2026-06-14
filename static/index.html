@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mindful Eating Timer</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div class="background-decoration" aria-hidden="true">
+      <span class="leaf leaf-1">&#127807;</span>
+      <span class="leaf leaf-2">&#127810;</span>
+      <span class="leaf leaf-3">&#127809;</span>
+      <span class="leaf leaf-4">&#127808;</span>
+      <span class="leaf leaf-5">&#127815;</span>
+      <span class="leaf leaf-6">&#127822;</span>
+    </div>
+
+    <main class="container">
+      <header class="hero">
+        <div class="hero-icon" aria-hidden="true">&#127807;</div>
+        <h1 class="hero-title">Mindful Eating Timer</h1>
+        <p class="hero-subtitle">
+          Slow down, savour every bite, and nourish your body with intention.
+        </p>
+      </header>
+
+      <section class="timer-card" aria-label="Countdown timer">
+        <div class="timer-label" id="timer-status">Ready to begin</div>
+
+        <div class="timer-display" role="timer" aria-live="polite" aria-label="Time remaining">
+          <span id="minutes" class="time-unit">55</span>
+          <span class="time-separator">:</span>
+          <span id="seconds" class="time-unit">00</span>
+        </div>
+
+        <div class="timer-meta">
+          <span class="meta-item">
+            <span class="meta-icon" aria-hidden="true">&#9679;</span>
+            <span id="minutes-elapsed">0</span> min elapsed
+          </span>
+          <span class="meta-divider" aria-hidden="true">|</span>
+          <span class="meta-item">
+            <span class="meta-icon" aria-hidden="true">&#9675;</span>
+            <span id="minutes-remaining">55</span> min remaining
+          </span>
+        </div>
+
+        <progress
+          class="progress-track"
+          id="progress-fill"
+          value="0"
+          max="55"
+          aria-label="Timer progress"
+        >0%</progress>
+
+        <div class="controls">
+          <button class="btn btn-primary" id="btn-start" aria-label="Start timer">
+            <span class="btn-icon" aria-hidden="true">&#9654;</span>
+            Start
+          </button>
+          <button class="btn btn-secondary" id="btn-pause" disabled aria-label="Pause timer">
+            <span class="btn-icon" aria-hidden="true">&#9646;&#9646;</span>
+            Pause
+          </button>
+          <button class="btn btn-ghost" id="btn-reset" aria-label="Reset timer">
+            <span class="btn-icon" aria-hidden="true">&#8635;</span>
+            Reset
+          </button>
+        </div>
+
+        <div class="sound-toggle">
+          <label class="toggle-label" for="sound-toggle">
+            <span class="toggle-icon" aria-hidden="true">&#128266;</span>
+            Minute chime
+          </label>
+          <button
+            class="toggle-btn active"
+            id="sound-toggle"
+            role="switch"
+            aria-checked="true"
+            aria-label="Toggle minute chime sound"
+          >
+            <span class="toggle-thumb"></span>
+          </button>
+        </div>
+      </section>
+
+      <section class="tips-section" aria-label="Mindful eating tips">
+        <h2 class="tips-title">
+          <span aria-hidden="true">&#127807;</span> Mindful Eating Tips
+        </h2>
+        <ul class="tips-list">
+          <li class="tip-item">
+            <span class="tip-icon" aria-hidden="true">&#127812;</span>
+            <span>Put your fork down between each bite to slow your pace.</span>
+          </li>
+          <li class="tip-item">
+            <span class="tip-icon" aria-hidden="true">&#128166;</span>
+            <span>Chew each mouthful thoroughly - aim for 20 to 30 chews.</span>
+          </li>
+          <li class="tip-item">
+            <span class="tip-icon" aria-hidden="true">&#128064;</span>
+            <span>Notice the colours, textures, and aromas of your food.</span>
+          </li>
+          <li class="tip-item">
+            <span class="tip-icon" aria-hidden="true">&#128267;</span>
+            <span>Eat away from screens to give your meal your full attention.</span>
+          </li>
+          <li class="tip-item">
+            <span class="tip-icon" aria-hidden="true">&#129778;</span>
+            <span>Check in with your hunger level every few minutes.</span>
+          </li>
+        </ul>
+      </section>
+
+      <footer class="page-footer">
+        <p>A gentle reminder: it takes about 20 minutes for your brain to register fullness.</p>
+      </footer>
+    </main>
+
+    <script src="script.js"></script>
+  </body>
+</html>
+
