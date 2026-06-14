@@ -14,10 +14,11 @@
   let isRunning          = false;
   let soundEnabled       = true;
 
-  // Wall-clock reference point recorded at each start/resume.
-  // tick() derives secondsLeft from Date.now() rather than a decrement counter
-  // so the display snaps to the correct time immediately after iOS resumes JS.
-  let startWallTime      = null;  // Date.now() at last start or resume
+  // Monotonic clock reference point recorded at each start/resume.
+  // tick() derives secondsLeft from performance.now() rather than a decrement
+  // counter so the display snaps to the correct time immediately after iOS
+  // resumes JS, and is unaffected by system clock adjustments.
+  let startWallTime      = null;  // performance.now() at last start or resume
   let secondsLeftAtStart = null;  // secondsLeft value at that moment
 
   // Lazily created on first user gesture to comply with browser autoplay policies.
@@ -44,7 +45,12 @@
   const btnReset         = document.getElementById("btn-reset");
   const soundToggle      = document.getElementById("sound-toggle");
 
-  // ---- Audio ----
+  // Monotonic clock helper - performance.now() is unaffected by system clock
+  // adjustments (NTP, manual time change, DST); fall back to Date.now() only
+  // if the Performance API is unavailable.
+  function now() {
+    return (typeof performance !== "undefined") ? performance.now() : Date.now();
+  }
 
   function getAudioContext() {
     if (!audioCtx) {
@@ -233,10 +239,10 @@
   // ---- Timer Logic ----
 
   function tick() {
-    // Derive remaining time from the wall clock so that when iOS resumes JS
-    // after backgrounding, the display jumps straight to the correct value
+    // Derive remaining time from the monotonic clock so that when iOS resumes
+    // JS after backgrounding, the display jumps straight to the correct value
     // rather than continuing from where it was frozen.
-    const elapsed = Math.floor((Date.now() - startWallTime) / 1000);
+    const elapsed = Math.floor((now() - startWallTime) / 1000);
     secondsLeft = Math.max(0, secondsLeftAtStart - elapsed);
 
     if (secondsLeft <= 0) {
@@ -255,9 +261,9 @@
 
     getAudioContext(); // warm up on user gesture
 
-    // Capture wall-clock reference so tick() can compute elapsed time
+    // Capture monotonic clock reference so tick() can compute elapsed time
     // independently of how often setInterval actually fires.
-    startWallTime      = Date.now();
+    startWallTime      = now();
     secondsLeftAtStart = secondsLeft;
 
     isRunning = true;
