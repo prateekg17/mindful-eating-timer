@@ -36,7 +36,8 @@
 
   function getAudioContext() {
     if (!audioCtx) {
-      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const AudioCtx = window.AudioContext || window["webkitAudioContext"];
+      audioCtx = new AudioCtx();
     }
     // Resume if suspended (Safari policy)
     if (audioCtx.state === "suspended") {
@@ -55,10 +56,22 @@
   function playChime(isFinal = false) {
     if (!soundEnabled) return;
 
-    const ctx    = getAudioContext();
-    const now    = ctx.currentTime;
-    const gain   = ctx.createGain();
-    gain.connect(ctx.destination);
+    const ctx        = getAudioContext();
+    const now        = ctx.currentTime;
+
+    // DynamicsCompressorNode normalises the signal closer to the system
+    // media volume ceiling, boosting perceived loudness without clipping.
+    const compressor = ctx.createDynamicsCompressor();
+    compressor.threshold.setValueAtTime(-6, now);   // dB - start compressing early
+    compressor.knee.setValueAtTime(6, now);          // dB - soft knee
+    compressor.ratio.setValueAtTime(4, now);         // 4:1 compression ratio
+    compressor.attack.setValueAtTime(0.003, now);    // seconds
+    compressor.release.setValueAtTime(0.25, now);    // seconds
+    compressor.connect(ctx.destination);
+
+    const masterGain = ctx.createGain();
+    masterGain.gain.setValueAtTime(1.0, now);
+    masterGain.connect(compressor);
 
     const frequencies = isFinal
       ? [523.25, 659.25, 783.99]   // C5, E5, G5 - a pleasant major chord
@@ -71,11 +84,11 @@
 
       const oscGain = ctx.createGain();
       oscGain.gain.setValueAtTime(0, now);
-      oscGain.gain.linearRampToValueAtTime(0.18, now + 0.02 + i * 0.04);
+      oscGain.gain.linearRampToValueAtTime(0.6, now + 0.02 + i * 0.04);
       oscGain.gain.exponentialRampToValueAtTime(0.001, now + 1.4);
 
       osc.connect(oscGain);
-      oscGain.connect(gain);
+      oscGain.connect(masterGain);
 
       osc.start(now + i * 0.04);
       osc.stop(now + 1.5);
@@ -98,11 +111,10 @@
     const elapsed   = Math.floor((TOTAL_SECONDS - secondsLeft) / 60);
     const remaining = Math.ceil(secondsLeft / 60);
 
-    minutesElapsed.textContent   = elapsed;
-    minutesRemaining.textContent = remaining;
+    minutesElapsed.textContent   = String(elapsed);
+    minutesRemaining.textContent = String(remaining);
 
-    const elapsedMins = Math.floor((TOTAL_SECONDS - secondsLeft) / 60);
-    progressEl.value = elapsedMins;
+    progressEl.value = elapsed;
   }
 
   function setStatus(text, modifier) {
