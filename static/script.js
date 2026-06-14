@@ -9,10 +9,16 @@
   const TOTAL_SECONDS = 55 * 60;
 
   // ---- State ----
-  let secondsLeft  = TOTAL_SECONDS;
-  let intervalId   = null;
-  let isRunning    = false;
-  let soundEnabled = true;
+  let secondsLeft        = TOTAL_SECONDS;
+  let intervalId         = null;
+  let isRunning          = false;
+  let soundEnabled       = true;
+
+  // Wall-clock reference point recorded at each start/resume.
+  // tick() derives secondsLeft from Date.now() rather than a decrement counter
+  // so the display snaps to the correct time immediately after iOS resumes JS.
+  let startWallTime      = null;  // Date.now() at last start or resume
+  let secondsLeftAtStart = null;  // secondsLeft value at that moment
 
   // Lazily created on first user gesture to comply with browser autoplay policies.
   let audioCtx = null;
@@ -227,6 +233,12 @@
   // ---- Timer Logic ----
 
   function tick() {
+    // Derive remaining time from the wall clock so that when iOS resumes JS
+    // after backgrounding, the display jumps straight to the correct value
+    // rather than continuing from where it was frozen.
+    const elapsed = Math.floor((Date.now() - startWallTime) / 1000);
+    secondsLeft = Math.max(0, secondsLeftAtStart - elapsed);
+
     if (secondsLeft <= 0) {
       clearInterval(intervalId);
       intervalId  = null;
@@ -235,15 +247,18 @@
       markFinished();
       return;
     }
-    secondsLeft -= 1;
     updateDisplay();
-    // Chimes are pre-scheduled - no per-tick audio call needed.
   }
 
   function startTimer() {
     if (isRunning) return;
 
     getAudioContext(); // warm up on user gesture
+
+    // Capture wall-clock reference so tick() can compute elapsed time
+    // independently of how often setInterval actually fires.
+    startWallTime      = Date.now();
+    secondsLeftAtStart = secondsLeft;
 
     isRunning = true;
     setStatus("Eating mindfully...", "running");
@@ -284,9 +299,11 @@
 
   function resetTimer() {
     clearInterval(intervalId);
-    intervalId  = null;
-    isRunning   = false;
-    secondsLeft = TOTAL_SECONDS;
+    intervalId         = null;
+    isRunning          = false;
+    secondsLeft        = TOTAL_SECONDS;
+    startWallTime      = null;
+    secondsLeftAtStart = null;
 
     cancelScheduledChimes();
     stopKeepAlive();
@@ -328,6 +345,14 @@
   btnPause.addEventListener("click", pauseTimer);
   btnReset.addEventListener("click", resetTimer);
   soundToggle.addEventListener("click", toggleSound);
+
+  // Snap the display to the correct time the instant the user returns to the
+  // tab, without waiting for the next setInterval fire.
+  document.addEventListener("visibilitychange", function () {
+    if (!document.hidden && isRunning) {
+      tick();
+    }
+  });
 
   // ---- Initial Render ----
 

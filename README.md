@@ -101,15 +101,16 @@ https://prateekg17.github.io/mindful-eating-timer/
 
 ## Browser compatibility
 
-| Browser                    | Audio | Background audio                                    |
-|----------------------------|-------|-----------------------------------------------------|
-| Chrome (desktop + Android) | Yes   | Yes                                                 |
-| Safari (macOS + iOS)       | Yes   | Yes, whilst screen is on and phone is not on silent |
-| Firefox                    | Yes   | Partial - depends on OS audio policy                |
+| Browser                    | Audio | Background audio (screen on, not silent)               | Display on return               |
+|----------------------------|-------|--------------------------------------------------------|---------------------------------|
+| Chrome (desktop + Android) | Yes   | Yes                                                    | Snaps to correct time instantly |
+| Safari (macOS + iOS)       | Yes   | Yes - keep-alive loop prevents AudioContext suspension | Snaps to correct time instantly |
+| Firefox                    | Yes   | Partial - depends on OS audio policy                   | Snaps to correct time instantly |
 
 > **Note** - on iOS, the silent switch mutes all browser audio regardless of
 > volume settings. This is an OS-level restriction that cannot be overridden
-> from a web page.
+> from a web page. Chimes also require the screen to be on; a locked screen
+> may cause iOS to suspend the browser tab entirely.
 
 ---
 
