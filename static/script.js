@@ -9,28 +9,34 @@
   const TOTAL_SECONDS = 55 * 60;
 
   // ---- State ----
-  let secondsLeft = TOTAL_SECONDS;
+  let secondsLeft  = TOTAL_SECONDS;
   let intervalId   = null;
   let isRunning    = false;
   let soundEnabled = true;
 
-  // AudioContext is lazily created on first user gesture to comply with
-  // browser autoplay policies.
+  // Lazily created on first user gesture to comply with browser autoplay policies.
   let audioCtx = null;
 
+  // Oscillator nodes scheduled in the audio graph; cancelled on pause or reset.
+  let scheduledOscillators = [];
+
+  // Near-silent looping buffer that keeps the iOS audio session alive when the
+  // user switches to another app (screen still on).
+  let keepAliveSource = null;
+
   // ---- DOM References ----
-  const minutesEl       = document.getElementById("minutes");
-  const secondsEl       = document.getElementById("seconds");
-  const statusEl        = document.getElementById("timer-status");
-  const minutesElapsed  = document.getElementById("minutes-elapsed");
+  const minutesEl        = document.getElementById("minutes");
+  const secondsEl        = document.getElementById("seconds");
+  const statusEl         = document.getElementById("timer-status");
+  const minutesElapsed   = document.getElementById("minutes-elapsed");
   const minutesRemaining = document.getElementById("minutes-remaining");
-  const progressEl      = document.getElementById("progress-fill");
-  const timerDisplay    = document.querySelector(".timer-display");
-  const timerCard       = document.querySelector(".timer-card");
-  const btnStart        = document.getElementById("btn-start");
-  const btnPause        = document.getElementById("btn-pause");
-  const btnReset        = document.getElementById("btn-reset");
-  const soundToggle     = document.getElementById("sound-toggle");
+  const progressEl       = document.getElementById("progress-fill");
+  const timerDisplay     = document.querySelector(".timer-display");
+  const timerCard        = document.querySelector(".timer-card");
+  const btnStart         = document.getElementById("btn-start");
+  const btnPause         = document.getElementById("btn-pause");
+  const btnReset         = document.getElementById("btn-reset");
+  const soundToggle      = document.getElementById("sound-toggle");
 
   // ---- Audio ----
 
@@ -39,7 +45,6 @@
       const AudioCtx = window.AudioContext || window["webkitAudioContext"];
       audioCtx = new AudioCtx();
     }
-    // Resume if suspended (Safari policy)
     if (audioCtx.state === "suspended") {
       audioCtx.resume();
     }
@@ -47,52 +52,135 @@
   }
 
   /**
-   * Play a gentle chime using the Web Audio API.
-   * Two overlapping sine tones give a soft bell-like quality that will
-   * play through whatever audio output the user has set as their default.
+   * Schedule a single chime at a specific AudioContext timestamp.
    *
-   * @param {boolean} isFinal - use a slightly richer tone for the final chime
+   * @param {number}  atTime  - AudioContext time at which the chime starts
+   * @param {boolean} isFinal - use a richer tone for the completion chime
    */
-  function playChime(isFinal = false) {
-    if (!soundEnabled) return;
+  function scheduleChimeAt(atTime, isFinal) {
+    const ctx = getAudioContext();
 
-    const ctx        = getAudioContext();
-    const now        = ctx.currentTime;
-
-    // DynamicsCompressorNode normalises the signal closer to the system
-    // media volume ceiling, boosting perceived loudness without clipping.
     const compressor = ctx.createDynamicsCompressor();
-    compressor.threshold.setValueAtTime(-6, now);   // dB - start compressing early
-    compressor.knee.setValueAtTime(6, now);          // dB - soft knee
-    compressor.ratio.setValueAtTime(4, now);         // 4:1 compression ratio
-    compressor.attack.setValueAtTime(0.003, now);    // seconds
-    compressor.release.setValueAtTime(0.25, now);    // seconds
+    compressor.threshold.setValueAtTime(-6, atTime);
+    compressor.knee.setValueAtTime(6, atTime);
+    compressor.ratio.setValueAtTime(4, atTime);
+    compressor.attack.setValueAtTime(0.003, atTime);
+    compressor.release.setValueAtTime(0.25, atTime);
     compressor.connect(ctx.destination);
 
     const masterGain = ctx.createGain();
-    masterGain.gain.setValueAtTime(1.0, now);
+    masterGain.gain.setValueAtTime(1.0, atTime);
     masterGain.connect(compressor);
 
     const frequencies = isFinal
-      ? [523.25, 659.25, 783.99]   // C5, E5, G5 - a pleasant major chord
-      : [659.25, 830.61];          // E5, Ab5 - a gentle two-note chime
+      ? [523.25, 659.25, 783.99]  // C5, E5, G5 - major chord
+      : [659.25, 830.61];         // E5, Ab5 - two-note chime
 
-    frequencies.forEach((freq, i) => {
+    let endedCount = 0;
+
+    frequencies.forEach(function (freq, i) {
       const osc = ctx.createOscillator();
       osc.type = "sine";
-      osc.frequency.setValueAtTime(freq, now);
+      osc.frequency.setValueAtTime(freq, atTime);
 
       const oscGain = ctx.createGain();
-      oscGain.gain.setValueAtTime(0, now);
-      oscGain.gain.linearRampToValueAtTime(0.6, now + 0.02 + i * 0.04);
-      oscGain.gain.exponentialRampToValueAtTime(0.001, now + 1.4);
+      oscGain.gain.setValueAtTime(0, atTime);
+      oscGain.gain.linearRampToValueAtTime(0.6, atTime + 0.02 + i * 0.04);
+      oscGain.gain.exponentialRampToValueAtTime(0.001, atTime + 1.4);
 
       osc.connect(oscGain);
       oscGain.connect(masterGain);
 
-      osc.start(now + i * 0.04);
-      osc.stop(now + 1.5);
+      osc.onended = function () {
+        try { oscGain.disconnect(); } catch (_) { /* ignore */ }
+
+        const idx = scheduledOscillators.indexOf(osc);
+        if (idx !== -1) { scheduledOscillators.splice(idx, 1); }
+
+        // Disconnect shared nodes once every oscillator in this chime has ended.
+        endedCount += 1;
+        if (endedCount === frequencies.length) {
+          try { masterGain.disconnect(); } catch (_) { /* ignore */ }
+          try { compressor.disconnect(); } catch (_) { /* ignore */ }
+        }
+      };
+
+      osc.start(atTime + i * 0.04);
+      osc.stop(atTime + 1.5);
+
+      scheduledOscillators.push(osc);
     });
+  }
+
+  /**
+   * Pre-schedule all remaining chimes into the audio graph.
+   * Web Audio rendering runs on a dedicated thread, so chimes fire even when
+   * the browser tab is in background (user switched to another app, screen on).
+   */
+  function scheduleAllChimes() {
+    cancelScheduledChimes();
+    if (!soundEnabled) return;
+
+    const ctx = getAudioContext();
+    const now = ctx.currentTime;
+
+    const firstChimeAt = Math.floor((secondsLeft - 1) / 60) * 60;
+    for (let s = firstChimeAt; s >= 60; s -= 60) {
+      scheduleChimeAt(now + (secondsLeft - s), false);
+    }
+
+    // Final completion chime
+    scheduleChimeAt(now + secondsLeft, true);
+  }
+
+  // Immediately stop all pre-scheduled oscillator nodes.
+  function cancelScheduledChimes() {
+    if (!audioCtx) return;
+    const now = audioCtx.currentTime;
+    scheduledOscillators.forEach(function (osc) {
+      try { osc.stop(now); } catch (_) { /* ignore */ }
+      try { osc.disconnect(); } catch (_) { /* already disconnected */ }
+    });
+    scheduledOscillators = [];
+  }
+
+  /**
+   * Start a looping near-silent buffer to keep the iOS audio session alive.
+   * iOS suspends the AudioContext when Safari backgrounds unless a session is
+   * active; gain 0.001 is inaudible but sufficient to hold the session open.
+   */
+  function startKeepAlive() {
+    stopKeepAlive();
+    if (!soundEnabled) return;
+    const ctx = getAudioContext();
+
+    const silentBuffer = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
+    const source = ctx.createBufferSource();
+    source.buffer = silentBuffer;
+    source.loop = true;
+
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.001, ctx.currentTime);
+    source.connect(gain);
+    gain.connect(ctx.destination);
+
+    source._keepAliveGain = gain;
+
+    source.start();
+    keepAliveSource = source;
+  }
+
+  // Stop the keep-alive source.
+  function stopKeepAlive() {
+    if (keepAliveSource) {
+      const gain = keepAliveSource._keepAliveGain;
+      try { keepAliveSource.stop(); } catch (_) { /* already stopped */ }
+      try { keepAliveSource.disconnect(); } catch (_) { /* ignore */ }
+      if (gain) {
+        try { gain.disconnect(); } catch (_) { /* ignore */ }
+      }
+      keepAliveSource = null;
+    }
   }
 
   // ---- Display Helpers ----
@@ -124,17 +212,16 @@
   }
 
   function markFinished() {
+    stopKeepAlive();
     timerCard.classList.add("finished");
     setStatus("Meal complete - well done!", "finished");
     minutesEl.textContent = "00";
     secondsEl.textContent = "00";
     minutesRemaining.textContent = "0";
     progressEl.value = 55;
-
     btnStart.disabled = true;
     btnPause.disabled = true;
-
-    playChime(true);
+    // Final chime is already pre-scheduled in the audio graph.
   }
 
   // ---- Timer Logic ----
@@ -142,20 +229,15 @@
   function tick() {
     if (secondsLeft <= 0) {
       clearInterval(intervalId);
-      intervalId = null;
-      isRunning  = false;
+      intervalId  = null;
+      isRunning   = false;
       secondsLeft = 0;
       markFinished();
       return;
     }
-
     secondsLeft -= 1;
     updateDisplay();
-
-    // Chime on every exact minute boundary (seconds == 0) while running
-    if (secondsLeft % 60 === 0 && secondsLeft > 0) {
-      playChime(false);
-    }
+    // Chimes are pre-scheduled - no per-tick audio call needed.
   }
 
   function startTimer() {
@@ -163,13 +245,14 @@
 
     getAudioContext(); // warm up on user gesture
 
-    isRunning  = true;
+    isRunning = true;
     setStatus("Eating mindfully...", "running");
-
     btnStart.disabled = true;
     btnPause.disabled = false;
-
     timerCard.classList.remove("finished");
+
+    scheduleAllChimes();
+    startKeepAlive();
 
     intervalId = setInterval(tick, 1000);
   }
@@ -181,11 +264,15 @@
     intervalId = null;
     isRunning  = false;
 
+    // Cancel future chimes; keep-alive stays running so resume does not need
+    // a new user gesture to reschedule into the same audio session.
+    cancelScheduledChimes();
+
     setStatus("Paused", "paused");
 
     btnStart.textContent = "";
     const icon = document.createElement("span");
-    icon.className   = "btn-icon";
+    icon.className = "btn-icon";
     icon.setAttribute("aria-hidden", "true");
     icon.textContent = "\u25B6";
     btnStart.appendChild(icon);
@@ -201,9 +288,11 @@
     isRunning   = false;
     secondsLeft = TOTAL_SECONDS;
 
+    cancelScheduledChimes();
+    stopKeepAlive();
+
     setStatus("Ready to begin", "");
     updateDisplay();
-
     timerCard.classList.remove("finished");
 
     // Restore Start button label
@@ -221,6 +310,16 @@
 
     const icon = soundToggle.previousElementSibling.querySelector(".toggle-icon");
     icon.textContent = soundEnabled ? "\uD83D\uDD0A" : "\uD83D\uDD07";
+
+    if (soundEnabled) {
+      if (isRunning) {
+        scheduleAllChimes();
+        startKeepAlive();
+      }
+    } else {
+      cancelScheduledChimes();
+      stopKeepAlive();
+    }
   }
 
   // ---- Event Listeners ----
@@ -234,4 +333,3 @@
 
   updateDisplay();
 })();
-
