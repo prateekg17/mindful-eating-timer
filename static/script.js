@@ -76,6 +76,8 @@
       ? [523.25, 659.25, 783.99]  // C5, E5, G5 - major chord
       : [659.25, 830.61];         // E5, Ab5 - two-note chime
 
+    let endedCount = 0;
+
     frequencies.forEach(function (freq, i) {
       const osc = ctx.createOscillator();
       osc.type = "sine";
@@ -88,6 +90,20 @@
 
       osc.connect(oscGain);
       oscGain.connect(masterGain);
+
+      osc.onended = function () {
+        try { oscGain.disconnect(); } catch (_) { /* ignore */ }
+
+        const idx = scheduledOscillators.indexOf(osc);
+        if (idx !== -1) { scheduledOscillators.splice(idx, 1); }
+
+        // Disconnect shared nodes once every oscillator in this chime has ended.
+        endedCount += 1;
+        if (endedCount === frequencies.length) {
+          try { masterGain.disconnect(); } catch (_) { /* ignore */ }
+          try { compressor.disconnect(); } catch (_) { /* ignore */ }
+        }
+      };
 
       osc.start(atTime + i * 0.04);
       osc.stop(atTime + 1.5);
